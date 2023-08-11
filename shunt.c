@@ -78,26 +78,26 @@ typedef enum {
 } STATE_t;
 
 const char* state_name( STATE_t state ) {
-	switch(state) {
-		case STATE_OPERAND:       return "OPRND";     break;
-		case STATE_FUNCTION:      return "FUNCT";     break;
-		case STATE_BRACKET_LEFT:  return "BRLFT";     break;
-		case STATE_BRACKET_RIGHT: return "BRGHT";     break;
-		case STATE_COMMA:         return "COMMA";     break;
-		case STATE_DEREF:         return "DEREF";     break;
-		case STATE_SEMICOLON:     return "SEMICOLON"; break;
-		case STATE_QUOTE_SINGLE:  return "STRNG";     break;
-		case STATE_QUOTE_DOUBLE:  return "STRNG";     break;
-		case STATE_BLOCK_START:   return "BLKST";     break;
-		case STATE_BLOCK_END:     return "BLKEND";    break;
-		case STATE_OPERATOR:      return "OPER";      break;
+    switch(state) {
+        case STATE_OPERAND:       return "OPRND";     break;
+        case STATE_FUNCTION:      return "FUNCT";     break;
+        case STATE_BRACKET_LEFT:  return "BRLFT";     break;
+        case STATE_BRACKET_RIGHT: return "BRGHT";     break;
+        case STATE_COMMA:         return "COMMA";     break;
+        case STATE_DEREF:         return "DEREF";     break;
+        case STATE_SEMICOLON:     return "SEMICOLON"; break;
+        case STATE_QUOTE_SINGLE:  return "STRNG";     break;
+        case STATE_QUOTE_DOUBLE:  return "STRNG";     break;
+        case STATE_BLOCK_START:   return "BLKST";     break;
+        case STATE_BLOCK_END:     return "BLKEND";    break;
+        case STATE_OPERATOR:      return "OPER";      break;
         default:                  error( "BAD STATE" );
     }
 }
 
 void buffer_output( STATE_t state, int fdout, char*& buffer ) {
-	if( *buffer ) { dprintf( fdout, "%s%c%s", state_name(state), TOKFLDSEP, buffer)
-	*buffer = 0;		
+    if( *buffer ) { dprintf( fdout, "%s%c%s", state_name(state), TOKFLDSEP, buffer)
+    *buffer = 0;        
 }
 
 void lex( int fdin, int fdout ) {
@@ -136,45 +136,45 @@ void lex( int fdin, int fdout ) {
             default: state = STATE_OPERAND;
         }
         
-    	//------------------------------------------------------------------
-    	//handle state change, for operand
-    	//------------------------------------------------------------------
-    	if(( state != state_previous ) && ( state_previous == STATE_OPERAND )) {
+        //------------------------------------------------------------------
+        //handle state change, for operand
+        //------------------------------------------------------------------
+        if(( state != state_previous ) && ( state_previous == STATE_OPERAND )) {
             if( state == STATE_BRACKET_LEFT ) buffer_output( fdout, STATE_FUNCTION, buffer );
             else buffer_output( fdout, STATE_OPERAND, buffer );
             buffer_output( fdout, state, buffer );
         }
 
     
-    	//------------------------------------------------------------------
-    	//handle operand
-    	//------------------------------------------------------------------
-    	if( state == STATE_OPERAND ) {
-    		buffer[bufferlen++] = &c;
-    		continue;
-    	}
+        //------------------------------------------------------------------
+        //handle operand
+        //------------------------------------------------------------------
+        if( state == STATE_OPERAND ) {
+            buffer[bufferlen++] = &c;
+            continue;
+        }
     
-    	//------------------------------------------------------------------
-    	//handle unary plus/minus
-    	//------------------------------------------------------------------
-    	if(( charcount == 1 ) && ( c == '+' || c == '-')) {
-    		buffer[0] = UNARY; buffer[1] = c; buffer[2] = 0;
-    		buffer_output( fdout, state, buffer );
-    		continue;
-    	}	
+        //------------------------------------------------------------------
+        //handle unary plus/minus
+        //------------------------------------------------------------------
+        if(( charcount == 1 ) && ( c == '+' || c == '-')) {
+            buffer[0] = UNARY; buffer[1] = c; buffer[2] = 0;
+            buffer_output( fdout, state, buffer );
+            continue;
+        }    
     
-    	if(( state == STATE_BRACKET_LEFT && ( c2 == '+' || c2 == '-'))) {
-    		buffer[0] = c; buffer[1] = 0;
-    		buffer_output( fdout, STATE_BRACKET_LEFT, buffer );
-    		buffer[0] = UNARY; buffer[1] = c2; buffer[2] = 0;
-    		buffer_output( fdout, STATE_OPERATOR, buffer );
-    		read( fdin, charpair, 3 ) ; // drop next char
-    		continue;
+        if(( state == STATE_BRACKET_LEFT && ( c2 == '+' || c2 == '-'))) {
+            buffer[0] = c; buffer[1] = 0;
+            buffer_output( fdout, STATE_BRACKET_LEFT, buffer );
+            buffer[0] = UNARY; buffer[1] = c2; buffer[2] = 0;
+            buffer_output( fdout, STATE_OPERATOR, buffer );
+            read( fdin, charpair, 3 ) ; // drop next char
+            continue;
         }
 
-    	//------------------------------------------------------------------
-    	//handle named punctuation
-    	//------------------------------------------------------------------
+        //------------------------------------------------------------------
+        //handle named punctuation
+        //------------------------------------------------------------------
         if((state == STATE_BRACKET_LEFT) || (state == STATE_BRACKET_RIGHT)
         || (state == STATE_COMMA)        || (state == STATE_SEMICOLON)
         || (state == STATE_BLOCK_START)  || (state == STATE_BLOCK_END)) {
@@ -183,65 +183,68 @@ void lex( int fdin, int fdout ) {
             continue;
         }
     
-    	//------------------------------------------------------------------
-    	//handle quote single
-    	//------------------------------------------------------------------
-    	if( state == STATE_QUOTE_SINGLE ) {
+        //------------------------------------------------------------------
+        //handle quote single
+        //------------------------------------------------------------------
+        if( state == STATE_QUOTE_SINGLE ) {
             while(read( fdin, charpair, 3 ) == 3) {
                 c = charpair[0];
                 c2 = charpair[2];
-    			//handle escaped single quote
+                //handle escaped single quote
                 if((c == '\') && (c2 == '\'')) {
                     buffer[bufferlen++] = c2;
                     read( fdin, charpair, 3 ); //skip next charpair
                     continue;
                 }
-    			if( c == '\'') break;
+                if( c == '\'') break;
                 buffer[bufferlen++] = c;
             }
             buffer_output( fdout, state, buffer );
             continue;
         }
     
-    	//------------------------------------------------------------------
-    	//handle quote double
-    	//------------------------------------------------------------------
-    	if( state == STATE_QUOTE_DOUBLE ) {
+        //------------------------------------------------------------------
+        //handle quote double
+        //------------------------------------------------------------------
+        if( state == STATE_QUOTE_DOUBLE ) {
             while(read( fdin, charpair, 3 ) == 3) {
                 c = charpair[0];
                 c2 = charpair[2];
-    			//handle escaped double quote
+                //handle escaped double quote
                 if((c == '\') && (c2 == '"')) {
                     buffer[bufferlen++] = c2;
                     read( fdin, charpair, 3 ); //skip next charpair
                     continue;
                 }
-    			if( c == '"') break;
+                if( c == '"') break;
                 buffer[bufferlen++] = c;
             }
             buffer_output( fdout, state, buffer );
             continue;
         }
     
-    	//------------------------------------------------------------------
-    	//handle operators
-    	//------------------------------------------------------------------
-    	if( state == STATE_OPERATOR ) {
-    		char cp[3] = { c, c2, 0 };
-            if(streq(cp, "&&") || streq(cp, "||") || streq(cp, "<=") || streq(cp, ">=") || streq(cp, "==") || streq(cp, "<<") || streq(cp, ">>")) {
+        //------------------------------------------------------------------
+        //handle operators
+        //------------------------------------------------------------------
+        if( state == STATE_OPERATOR ) {
+            char cp[3] = { c, c2, 0 };
+            if(streq(cp, "&&") || streq(cp, "||")
+            || streq(cp, "<=") || streq(cp, ">=")
+            || streq(cp, "==")
+            || streq(cp, "<<") || streq(cp, ">>")) {
                 buffer[0] = c; buffer[1] = c2; buffer[2] = 0;
-        		read( fdin, charpair, 3 ) ; // drop next char
+                read( fdin, charpair, 3 ) ; // drop next char
             }
             else if(streq(cp, "->")) {
                 buffer[0] = c; buffer[1] = c2; buffer[2] = 0;
                 state = STATE_DEREF;
-        		read( fdin, charpair, 3 ) ; // drop next char
+                read( fdin, charpair, 3 ) ; // drop next char
             }
             else {
                 buffer[0] = c; buffer[1] = 0;
             }
-    		buffer_output( fdout, state, buffer );
-    	}
+            buffer_output( fdout, state, buffer );
+        }
         
 }
 
