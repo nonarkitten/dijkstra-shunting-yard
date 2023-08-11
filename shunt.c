@@ -3,11 +3,11 @@
 #include <string.h>
 #include <stdarg.h>
 
-const char* EOF='\0';
-const char* CHARSEP='·';
-const char* TOKFLDSEP='·';
-const char* TOKSEP='¦';
-const char* UNARY='.';
+const char EOF       = '\0';
+const char CHARSEP   = '·';
+const char TOKFLDSEP = '·';
+const char TOKSEP    = '¦';
+const char UNARY     = '.';
 
 void error(const char* format, ...) {
     va_list args;
