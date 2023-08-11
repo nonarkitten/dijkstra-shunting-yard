@@ -2,14 +2,19 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
+#include <unistd.h>
 
-const char EOF       = '\0';
-const char CHARSEP   = '·';
-const char TOKFLDSEP = '·';
-const char TOKSEP    = '¦';
+const char FILEEND   = '\0';
+const char CHARSEP   = '~';
+const char TOKFLDSEP = '~';
+const char TOKSEP    = '|';
 const char UNARY     = '.';
 
-void error( const char* format, ... ) {
+#define STDIN  0
+#define STDOUT 1
+#define STDERR 2
+
+static void error( const char* format, ... ) {
     va_list args;
     va_start(args, format);
     printf("***ERROR: ");
@@ -18,6 +23,11 @@ void error( const char* format, ... ) {
     printf("\n");
     exit(1);
 }
+
+static int streq(const char* str1, const char* str2) {
+	return 0 == strcmp( str1, str2 );
+}
+
 
 //================================================================
 //This function writes reads stdin character by character
@@ -32,20 +42,20 @@ void line2char( int fdin, int fdout ) {
 //This function juxtaposes the next character to a character,
 //in order to lookahead one character.
 //================================================================
-void readChar( int fdin, char& c, char& c2 ) {
-    c = c2;
-    int len = read( fdin, &c, 1 );
-    if( len == 0 ) c2 = EOF;
-    if( c2  == 0 ) c2 = ' ';
+void readChar( int fdin, char* c, char* c2 ) {
+    *c = *c2;
+    int len = read( fdin, c, 1 );
+    if( len == 0 ) *c2 = FILEEND;
+    if( *c2 == 0 ) *c2 = ' ';
 }
 char* lookahead_char( int fdin, int fdout ) {
     char c = 0, c2 = 0;
-    readChar(c, c2);
-    readChar(c, c2);
-    while( c != EOF ) {
+    readChar(fdin, &c, &c2);
+    readChar(fdin, &c, &c2);
+    while( c != FILEEND ) {
         char buffer[3] = { c, CHARSEP, c2 };
         write( fdout, &buffer, 3 );
-        readChar(c, c2);
+        readChar(fdin, &c, &c2);
     }
 }
 
@@ -95,8 +105,10 @@ const char* state_name( STATE_t state ) {
     }
 }
 
-void buffer_output( STATE_t state, int fdout, char*& buffer ) {
-    if( *buffer ) { dprintf( fdout, "%s%c%s", state_name(state), TOKFLDSEP, buffer)
+void buffer_output( STATE_t state, int fdout, char* buffer ) {
+    if( *buffer ) { 
+    	dprintf( fdout, "%s%c%s", state_name(state), TOKFLDSEP, buffer );
+    }
     *buffer = 0;        
 }
 
@@ -142,7 +154,7 @@ void lex( int fdin, int fdout ) {
         if(( state != state_previous ) && ( state_previous == STATE_OPERAND )) {
             if( state == STATE_BRACKET_LEFT ) buffer_output( fdout, STATE_FUNCTION, buffer );
             else buffer_output( fdout, STATE_OPERAND, buffer );
-            buffer_output( fdout, state, buffer );\t
+            buffer_output( fdout, state, buffer );
         }
 
     
@@ -150,7 +162,7 @@ void lex( int fdin, int fdout ) {
         //handle operand
         //------------------------------------------------------------------
         if( state == STATE_OPERAND ) {
-            buffer[bufferlen++] = &c;
+            buffer[bufferlen++] = c;
             continue;
         }
     
@@ -191,7 +203,7 @@ void lex( int fdin, int fdout ) {
                 c = charpair[0];
                 c2 = charpair[2];
                 //handle escaped single quote
-                if((c == '\') && (c2 == '\'')) {
+                if((c == '\\') && (c2 == '\'')) {
                     buffer[bufferlen++] = c2;
                     read( fdin, charpair, 3 ); //skip next charpair
                     continue;
@@ -211,7 +223,7 @@ void lex( int fdin, int fdout ) {
                 c = charpair[0];
                 c2 = charpair[2];
                 //handle escaped double quote
-                if((c == '\') && (c2 == '"')) {
+                if((c == '\\') && (c2 == '"')) {
                     buffer[bufferlen++] = c2;
                     read( fdin, charpair, 3 ); //skip next charpair
                     continue;
@@ -252,7 +264,7 @@ void lex( int fdin, int fdout ) {
 //================================================================
 //This program combines the entire chain required to translate
 //an infix expression into an RPN postfix expression.
-//================================================================
+//================================g================================
 int main(int argc, char *argv[]) {
     int fd[9][2];
     
@@ -260,9 +272,9 @@ int main(int argc, char *argv[]) {
     for(int i=0; i<9; i++) pipe(fd[i]);
     
     // fork the processes for each pipe
-    if(fork() == 0) line2char         ( stdin,    fd[0][0] );
+    if(fork() == 0) line2char         ( STDIN,    fd[0][0] );
     if(fork() == 0) lookahead_char    ( fd[0][1], fd[1][0] );
-    else            lex               ( fd[1][1], stdout   );
+    else            lex               ( fd[1][1], STDOUT   );
     // if(fork() == 0) lex               ( fd[1][1], fd[2][0] );
     // if(fork() == 0) lookahead_2tokens ( fd[2][1], fd[3][0] );
     // if(fork() == 0) fix_func0         ( fd[3][1], fd[4][0] );
