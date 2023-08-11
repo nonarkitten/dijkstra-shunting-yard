@@ -142,7 +142,7 @@ void lex( int fdin, int fdout ) {
         if(( state != state_previous ) && ( state_previous == STATE_OPERAND )) {
             if( state == STATE_BRACKET_LEFT ) buffer_output( fdout, STATE_FUNCTION, buffer );
             else buffer_output( fdout, STATE_OPERAND, buffer );
-            buffer_output( fdout, state, buffer );
+            buffer_output( fdout, state, buffer );\t
         }
 
     
@@ -244,8 +244,9 @@ void lex( int fdin, int fdout ) {
                 buffer[0] = c; buffer[1] = 0;
             }
             buffer_output( fdout, state, buffer );
+            continue;
         }
-        
+    } // end while
 }
 
 //================================================================
