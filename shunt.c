@@ -3,16 +3,13 @@
 #include <string.h>
 #include <stdarg.h>
 #include <unistd.h>
+#include <sys/wait.h>
 
 const char FILEEND   = '\0';
 const char CHARSEP   = '~';
-const char TOKFLDSEP = '~';
+const char TOKFLDSEP = ':';
 const char TOKSEP    = '|';
 const char UNARY     = '.';
-
-#define STDIN  0
-#define STDOUT 1
-#define STDERR 2
 
 static void error( const char* format, ... ) {
     va_list args;
@@ -34,29 +31,31 @@ static int streq(const char* str1, const char* str2) {
 //and writes them one per line to stdout
 //================================================================
 void line2char( int fdin, int fdout ) {
-    char c;
-    while(read( fdin, &c, 1 ) > 0) write( fdout, &c, 1 );
+    char c = 1;
+    while(c != FILEEND && read( fdin, &c, 1 ) > 0) {
+    	if(c == '\n') c = FILEEND;
+    	write( fdout, &c, 1 );
+    }
+    //fprintf( stderr, "Exiting line2char\n" );
+    exit(0);
 }
 
 //================================================================
 //This function juxtaposes the next character to a character,
 //in order to lookahead one character.
 //================================================================
-void readChar( int fdin, char* c, char* c2 ) {
-    *c = *c2;
-    int len = read( fdin, c, 1 );
-    if( len == 0 ) *c2 = FILEEND;
-    if( *c2 == 0 ) *c2 = ' ';
-}
 char* lookahead_char( int fdin, int fdout ) {
     char c = 0, c2 = 0;
-    readChar(fdin, &c, &c2);
-    readChar(fdin, &c, &c2);
-    while( c != FILEEND ) {
+    c = c2; read( fdin, &c2, 1);
+    c = c2; read( fdin, &c2, 1);
+    while( 1 ) {
         char buffer[3] = { c, CHARSEP, c2 };
-        write( fdout, &buffer, 3 );
-        readChar(fdin, &c, &c2);
+        write( fdout, buffer, 3 );
+        if(c2 == FILEEND) break;
+		c = c2; read( fdin, &c2, 1);
     }
+    //fprintf( stderr, "Exiting lookahead_char\n" );
+    exit(0);
 }
 
 //================================================================
@@ -101,15 +100,16 @@ const char* state_name( STATE_t state ) {
         case STATE_BLOCK_START:   return "BLKST";     break;
         case STATE_BLOCK_END:     return "BLKEND";    break;
         case STATE_OPERATOR:      return "OPER";      break;
-        default:                  error( "BAD STATE" );
+        case STATE_SPACE:         return "BLANK";     break;
+        default:                  error( "BAD STATE: %d", (int)state );
     }
 }
 
-void buffer_output( STATE_t state, int fdout, char* buffer ) {
-    if( *buffer ) { 
-    	dprintf( fdout, "%s%c%s", state_name(state), TOKFLDSEP, buffer );
+void buffer_output( int fdout, STATE_t state, char* buffer ) {
+    if( *buffer ) {
+    	dprintf( fdout, "%s%c%s\n", state_name(state), TOKFLDSEP, buffer );
+	    *buffer = 0;
     }
-    *buffer = 0;        
 }
 
 void lex( int fdin, int fdout ) {
@@ -117,15 +117,16 @@ void lex( int fdin, int fdout ) {
     int charcount = 0;
     int bufferlen = 0;
     char charpair[3] = { 0 };
-    char c, c2;
+    char c, c2 = 1;
     STATE_t state_previous;
     STATE_t state = STATE_OPERAND;
 
-    while(read( fdin, charpair, 3 ) == 3) {
+    while(c2 && read( fdin, charpair, 3 ) == 3) {
         charcount++;
         c = charpair[0];
         c2 = charpair[2];
-        
+        //fprintf( stderr, "%02x:%02X ", c, c2 );
+                
         state_previous = state;
         if(buffer[0] == 0) bufferlen = 0;
 
@@ -136,33 +137,41 @@ void lex( int fdin, int fdout ) {
             case '_': state = STATE_OPERAND; break;
             case '.': state = STATE_OPERAND; break;
             case '$': state = STATE_OPERAND; break;
+            
             case ' ': state = STATE_SPACE; break;
+            
             case '(': state = STATE_BRACKET_LEFT; break;
             case ')': state = STATE_BRACKET_RIGHT; break;
+            
             case ',': state = STATE_COMMA; break;
             case ';': state = STATE_SEMICOLON; break;
+            
             case '{': state = STATE_BLOCK_START; break;
             case '}': state = STATE_BLOCK_END; break;
+            
             case '"': state = STATE_QUOTE_DOUBLE; break;
             case '\'':state = STATE_QUOTE_SINGLE; break;
-            default: state = STATE_OPERAND;
+            
+            default: state = STATE_OPERATOR;
         }
-        
+        //fprintf( stderr, "%s ", state_name(state) );
         //------------------------------------------------------------------
         //handle state change, for operand
         //------------------------------------------------------------------
         if(( state != state_previous ) && ( state_previous == STATE_OPERAND )) {
-            if( state == STATE_BRACKET_LEFT ) buffer_output( fdout, STATE_FUNCTION, buffer );
-            else buffer_output( fdout, STATE_OPERAND, buffer );
+            if( state == STATE_BRACKET_LEFT ) {
+            	buffer_output( fdout, STATE_FUNCTION, buffer );
+            } else {
+            	buffer_output( fdout, STATE_OPERAND, buffer );
+        	}
             buffer_output( fdout, state, buffer );
         }
-
     
         //------------------------------------------------------------------
         //handle operand
         //------------------------------------------------------------------
         if( state == STATE_OPERAND ) {
-            buffer[bufferlen++] = c;
+            buffer[bufferlen++] = c; buffer[bufferlen] = 0;
             continue;
         }
     
@@ -204,12 +213,12 @@ void lex( int fdin, int fdout ) {
                 c2 = charpair[2];
                 //handle escaped single quote
                 if((c == '\\') && (c2 == '\'')) {
-                    buffer[bufferlen++] = c2;
+                    buffer[bufferlen++] = c2; buffer[bufferlen] = 0;
                     read( fdin, charpair, 3 ); //skip next charpair
                     continue;
                 }
                 if( c == '\'') break;
-                buffer[bufferlen++] = c;
+                buffer[bufferlen++] = c; buffer[bufferlen] = 0;
             }
             buffer_output( fdout, state, buffer );
             continue;
@@ -224,12 +233,12 @@ void lex( int fdin, int fdout ) {
                 c2 = charpair[2];
                 //handle escaped double quote
                 if((c == '\\') && (c2 == '"')) {
-                    buffer[bufferlen++] = c2;
+                    buffer[bufferlen++] = c2; buffer[bufferlen] = 0;
                     read( fdin, charpair, 3 ); //skip next charpair
                     continue;
                 }
                 if( c == '"') break;
-                buffer[bufferlen++] = c;
+                buffer[bufferlen++] = c; buffer[bufferlen] = 0;
             }
             buffer_output( fdout, state, buffer );
             continue;
@@ -259,6 +268,9 @@ void lex( int fdin, int fdout ) {
             continue;
         }
     } // end while
+    buffer_output( fdout, state, buffer );
+    //fprintf( stderr, "Exiting lex\n" );
+    exit(0);
 }
 
 //================================================================
@@ -272,9 +284,9 @@ int main(int argc, char *argv[]) {
     for(int i=0; i<9; i++) pipe(fd[i]);
     
     // fork the processes for each pipe
-    if(fork() == 0) line2char         ( STDIN,    fd[0][0] );
-    if(fork() == 0) lookahead_char    ( fd[0][1], fd[1][0] );
-    else            lex               ( fd[1][1], STDOUT   );
+    if(fork() == 0) line2char         ( STDIN_FILENO,    fd[0][1] ); //fd[0][0] 	   );
+    if(fork() == 0) lookahead_char    ( fd[0][0],        fd[1][1] );
+    if(fork() == 0) lex               ( fd[1][0], 	     STDERR_FILENO );
     // if(fork() == 0) lex               ( fd[1][1], fd[2][0] );
     // if(fork() == 0) lookahead_2tokens ( fd[2][1], fd[3][0] );
     // if(fork() == 0) fix_func0         ( fd[3][1], fd[4][0] );
@@ -283,6 +295,8 @@ int main(int argc, char *argv[]) {
     // if(fork() == 0) rpn               ( fd[6][1], fd[7][0] );
     // if(fork() == 0) lookahead_2tokens ( fd[7][1], fd[8][0] );
     // else            fix_invoke        ( fd[8][1], stdout   );
+        
+    while(wait(NULL) > 0);
     
     // close the pipes
     for(int i=0; i<9; i++) { close(fd[i][0]); close(fd[i][1]); }
