@@ -84,6 +84,7 @@ typedef enum {
     STATE_SEMICOLON,
     STATE_BLOCK_START,
     STATE_BLOCK_END,
+    STATE_EOF,
 } STATE_t;
 
 const char* state_name( STATE_t state ) {
@@ -101,6 +102,7 @@ const char* state_name( STATE_t state ) {
         case STATE_BLOCK_END:     return "BLKEND";    break;
         case STATE_OPERATOR:      return "OPER";      break;
         case STATE_SPACE:         return "BLANK";     break;
+        case STATE_EOF:           return "EOF";       break;
         default:                  error( "BAD STATE: %d", (int)state );
     }
 }
@@ -269,8 +271,103 @@ void lex( int fdin, int fdout ) {
         }
     } // end while
     buffer_output( fdout, state, buffer );
+    dprintf( fdout, "%s%c%s\n", state_name(STATE_EOF), TOKFLDSEP, "EOF" );
     //fprintf( stderr, "Exiting lex\n" );
     exit(0);
+}
+
+//================================================================
+//This program juxtaposes the next 2 tokens to a token,
+//in order to lookahead two tokens.
+//================================================================
+static char t1[256] = { 0 }, t2[256] = { 0 }, t3[256] = { 0 };
+static char* token1 = t1;
+static char* token2 = t2;
+static char* token3 = t3;
+static char tokend[4];
+static int die = 0;
+
+void readToken( FILE* fin ) {
+	char* tswap = token1;
+	token1 = token2;
+	token2 = token3;
+	token3 = tswap;
+	
+	fgets( token3, 256, fin );
+	token3[strcspn(token3, "\n")] = 0;
+}
+
+void lookahead_2tokens( int fdin, int fdout ) {
+	char buffer[1024];
+	FILE* fin = fdopen( fdin, "r" );
+	sprintf( tokend, "%c%c%c", TOKFLDSEP, TOKFLDSEP, TOKFLDSEP );
+	readToken(fin);
+	readToken(fin);
+	readToken(fin);
+	while(!streq(token3, "EOF:EOF")) {
+		int len = sprintf( buffer, "%s%c%s%c%s\n", token1, TOKSEP, token2, TOKSEP, token3 );
+		write( fdout, buffer, len );
+		die++; if(die > 20) error("Hung");
+		readToken(fin);
+	} 
+	fclose(fin);
+	//fprintf( stderr, "Exiting lookahead_2tokens\n");
+	exit(0);
+}
+
+//================================================================
+//This program reads a token with 2 lookahead tokens
+//if it finds a function token FUNCT, followed by a left and a right bracket
+//it will replace it by tokentype FUNC0
+//
+//The RPN parser counts the commas inside the brackets in order
+//to determine the number of arguments. The problem is that 
+//A function with only one argument has exactly the same number
+//of commas as a function with no arguments.
+//
+//Therefore, we must distinguish between zero and one arguments.
+//================================================================
+void fix_func0( int fdin, int fdout ) {
+	FILE* fin = fdopen( fdin, "r" );
+	char tokentriplet[256];
+	char tokentriplet_parser[16];
+	char tokenfield_parser[16];
+	
+	char token1[256], token2[256], token3[256];
+	char type1[256], type2[256], type3[256];
+	char value1[256], value2[256], value3[256];
+	char buffer[1024];
+	
+	sprintf( tokentriplet_parser, "%%s%c%%s%c%%s\n", TOKSEP, TOKSEP );
+	sprintf( tokenfield_parser, "%%s%c%%s\n", TOKFLDSEP );
+
+	do {
+	
+		fgets( buffer, 1024, fin );
+		sscanf( buffer, tokentriplet_parser, token1, token2, token3);
+		sscanf( token1, tokenfield_parser, type1, value1);
+		sscanf( token2, tokenfield_parser, type2, value2);
+		sscanf( token3, tokenfield_parser, type3, value3);
+		if(streq(type1, "FUNCT") && streq(type2, "BRLFT") && streq(type3, "BRGHT")) {
+			
+	} while(!streq(token3, "EOF:EOF"));
+			
+	
+	while read -r tokentriplet; do
+		OLD_IFS=$IFS
+		IFS="${TOKSEP}"; read token1 token2 token3 <<<"$tokentriplet"
+		IFS="${TOKFLDSEP}"; read type1 value1 <<<"$token1"
+		IFS="${TOKFLDSEP}"; read type2 value2 <<<"$token2"
+		IFS="${TOKFLDSEP}"; read type3 value3 <<<"$token3"
+
+		if [[ "$type1" == "FUNCT" && "$type2" == "BRLFT" && "$type3" == "BRGHT" ]] ; then
+			echo "FUNC0${TOKFLDSEP}$value1"
+			IFS=$OLD_IFS; read -r tokentriplet;  read -r tokentriplet #skip next two tokens
+		else
+			echo "$type1${TOKFLDSEP}$value1"
+		fi
+		IFS=$OLD_IFS
+	done
 }
 
 //================================================================
@@ -284,12 +381,11 @@ int main(int argc, char *argv[]) {
     for(int i=0; i<9; i++) pipe(fd[i]);
     
     // fork the processes for each pipe
-    if(fork() == 0) line2char         ( STDIN_FILENO,    fd[0][1] ); //fd[0][0] 	   );
-    if(fork() == 0) lookahead_char    ( fd[0][0],        fd[1][1] );
-    if(fork() == 0) lex               ( fd[1][0], 	     STDERR_FILENO );
-    // if(fork() == 0) lex               ( fd[1][1], fd[2][0] );
-    // if(fork() == 0) lookahead_2tokens ( fd[2][1], fd[3][0] );
-    // if(fork() == 0) fix_func0         ( fd[3][1], fd[4][0] );
+    if(fork() == 0) line2char         ( STDIN_FILENO, fd[0][1] ); //fd[0][0] 	   );
+    if(fork() == 0) lookahead_char    ( fd[0][0],     fd[1][1] );
+    if(fork() == 0) lex               ( fd[1][0], 	  fd[2][1] );
+    if(fork() == 0) lookahead_2tokens ( fd[2][0],     fd[3][1] );
+    if(fork() == 0) fix_func0         ( fd[3][0],     STDERR_FILENO );
     // if(fork() == 0) lookahead_2tokens ( fd[4][1], fd[5][0] );
     // if(fork() == 0) fix_funcdef       ( fd[5][1], fd[6][0] );
     // if(fork() == 0) rpn               ( fd[6][1], fd[7][0] );
